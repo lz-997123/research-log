@@ -1,0 +1,1337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实验室工作日志系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans SC', sans-serif; }
+        html { scroll-behavior: smooth; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .glass { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .entry-card { animation: slideIn 0.3s ease-out; }
+        .role-student { background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); }
+        .role-teacher { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
+        .teacher-comment {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            border-left: 4px solid #f59e0b;
+        }
+        .student-card {
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        .student-card:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); }
+        .student-card.active {
+            ring: 2px solid #3b82f6;
+            border-color: #3b82f6;
+            background: #eff6ff;
+        }
+        .time-section {
+            border-left: 3px solid;
+        }
+        .time-morning { border-color: #f59e0b; background: linear-gradient(to right, #fffbeb, #ffffff); }
+        .time-afternoon { border-color: #f97316; background: linear-gradient(to right, #fff7ed, #ffffff); }
+        .time-evening { border-color: #6366f1; background: linear-gradient(to right, #eef2ff, #ffffff); }
+        .sync-status {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            z-index: 100;
+            transition: all 0.3s;
+        }
+        .sync-online { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+        .sync-offline { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+        .sync-syncing { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+        .config-banner {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            border: 2px dashed #f59e0b;
+        }
+        .today-record {
+            background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+            border: 2px solid #10b981;
+        }
+        .today-badge {
+            background: #10b981;
+            color: white;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-weight: bold;
+        }
+        .step-hidden { display: none !important; }
+        .step-visible { display: block !important; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen text-slate-800">
+
+    <!-- 同步状态指示器 -->
+    <div id="syncStatus" class="sync-status sync-online hidden">
+        <span id="syncText">已同步</span>
+    </div>
+
+    <!-- 顶部导航 -->
+    <nav class="fixed top-0 w-full glass border-b border-white/50 z-50 px-4 py-3">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-lg">
+                    研
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg text-slate-800">实验室工作日志</h1>
+                    <p class="text-xs text-slate-500" id="currentDate">加载中...</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <div id="userBadge" class="hidden px-3 py-1.5 rounded-full text-xs font-medium text-white flex items-center gap-2">
+                    <span id="userName">未登录</span>
+                    <span id="userRole" class="opacity-75">学生</span>
+                </div>
+
+                <button onclick="showUserSelector()" class="px-3 py-2 text-xs text-slate-600 hover:text-indigo-600 transition-colors border border-slate-200 rounded-lg hover:border-indigo-300 bg-white/50">
+                    切换用户
+                </button>
+                <button onclick="manualBackup()" class="px-3 py-2 text-xs text-slate-600 hover:text-indigo-600 transition-colors border border-slate-200 rounded-lg hover:border-indigo-300 bg-white/50">
+                    备份
+                </button>
+                <button onclick="exportData()" class="px-3 py-2 text-xs text-slate-600 hover:text-indigo-600 transition-colors border border-slate-200 rounded-lg hover:border-indigo-300 bg-white/50">
+                    导出
+                </button>
+                <button onclick="toggleStats()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all shadow-md hover:shadow-lg">
+                    统计
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 配置提示面板 -->
+    <div id="configBanner" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="config-banner rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="text-3xl">⚙️</div>
+                <div>
+                    <h2 class="text-xl font-bold text-amber-800">需要配置</h2>
+                    <p class="text-sm text-amber-700">请导师完成以下步骤</p>
+                </div>
+            </div>
+            <div class="space-y-3 text-sm text-amber-900 bg-white/50 rounded-lg p-4">
+                <p>1. 访问 <a href="https://jsonbin.io" target="_blank" class="text-blue-600 underline">jsonbin.io</a> 注册账号</p>
+                <p>2. 点击 "Create Bin" 创建新的 Bin</p>
+                <p>3. 初始内容填写：<code>{"students":[],"records":[]}</code></p>
+                <p>4. 复制 Bin ID（网址中的一串字符）</p>
+                <p>5. 在 API Keys 页面复制 Master Key</p>
+                <p>6. 在下方填入配置信息</p>
+            </div>
+            <div class="mt-4 space-y-2">
+                <input type="text" id="setupBinId" placeholder="Bin ID (例如: 65a1b2c3d4e5f6g7h8i9j0k1)" class="w-full p-2 rounded border border-amber-300 text-sm">
+                <input type="password" id="setupApiKey" placeholder="Master Key (例如: $2b$10$...)" class="w-full p-2 rounded border border-amber-300 text-sm">
+                <button onclick="saveSetupConfig()" class="w-full py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-sm font-medium">
+                    保存配置并进入
+                </button>
+            </div>
+            <button onclick="enterOfflineMode()" class="w-full mt-2 py-2 text-amber-700 hover:bg-amber-100 rounded-lg text-sm">
+                离线模式（无需配置）
+            </button>
+        </div>
+    </div>
+
+    <!-- 用户选择面板 -->
+    <div id="userPanel" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h2 class="text-2xl font-bold mb-6 text-slate-800">👋 欢迎使用实验室日志系统</h2>
+
+            <!-- 步骤1：选择角色 -->
+            <div id="step1" class="mb-6">
+                <h3 class="text-lg font-medium text-slate-700 mb-4">请选择您的身份</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <button onclick="selectRole('student')" id="btn-student" class="p-6 rounded-xl border-2 border-slate-200 hover:border-blue-500 transition-all text-left group bg-white">
+                        <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-2xl mb-3 group-hover:scale-110 transition-transform">👨‍🎓</div>
+                        <h4 class="font-bold text-slate-800 mb-1">我是学生</h4>
+                        <p class="text-xs text-slate-500">记录每日工作日志</p>
+                    </button>
+                    <button onclick="selectRole('teacher')" id="btn-teacher" class="p-6 rounded-xl border-2 border-slate-200 hover:border-amber-500 transition-all text-left group bg-white">
+                        <div class="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center text-2xl mb-3 group-hover:scale-110 transition-transform">👨‍🏫</div>
+                        <h4 class="font-bold text-slate-800 mb-1">我是导师</h4>
+                        <p class="text-xs text-slate-500">查看所有学生日志</p>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 步骤2：学生选择/创建档案 -->
+            <div id="step2-student" class="mb-6 hidden">
+                <div class="flex items-center gap-2 mb-4">
+                    <button onclick="backToStep1()" class="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-1">
+                        ← 返回
+                    </button>
+                    <h3 class="text-lg font-medium text-slate-700">选择或创建档案</h3>
+                </div>
+
+                <div id="studentList" class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 max-h-60 overflow-y-auto">
+                    <!-- 动态生成学生列表 -->
+                </div>
+
+                <div id="noStudentsMsg" class="hidden text-center py-4 text-slate-500 text-sm">
+                    暂无学生档案，请创建新档案
+                </div>
+
+                <div class="border-t border-slate-200 pt-4">
+                    <p class="text-sm text-slate-600 mb-2 font-medium">新同学？创建档案：</p>
+                    <div class="flex gap-2">
+                        <input type="text" id="newStudentName" placeholder="输入姓名" class="flex-1 p-3 rounded-lg border border-slate-300 focus:border-blue-500 outline-none text-sm">
+                        <select id="newStudentYear" class="p-3 rounded-lg border border-slate-300 focus:border-blue-500 outline-none text-sm w-28">
+                            <option value="2023">2023级</option>
+                            <option value="2024">2024级</option>
+                            <option value="2025">2025级</option>
+                            <option value="2026">2026级</option>
+                        </select>
+                        <button onclick="createStudent()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 font-medium whitespace-nowrap">
+                            创建
+                        </button>
+                    </div>
+                </div>
+
+                <button id="enterBtnStudent" onclick="enterSystem()" class="w-full mt-4 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-all hidden">
+                    进入系统
+                </button>
+            </div>
+
+            <!-- 步骤2：导师确认 -->
+            <div id="step2-teacher" class="mb-6 hidden">
+                <div class="flex items-center gap-2 mb-4">
+                    <button onclick="backToStep1()" class="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-1">
+                        ← 返回
+                    </button>
+                    <h3 class="text-lg font-medium text-slate-700">导师模式</h3>
+                </div>
+
+                <div class="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center mb-4">
+                    <div class="text-4xl mb-2">👨‍🏫</div>
+                    <h4 class="font-bold text-amber-800 text-lg">导师控制台</h4>
+                    <p class="text-sm text-amber-700 mt-2">您可以查看所有学生的日志、添加评语、导出统计报告</p>
+                </div>
+
+                <button onclick="enterSystem()" class="w-full py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-all">
+                    进入系统
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主容器 -->
+    <div class="max-w-7xl mx-auto pt-24 pb-8 px-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- 左侧边栏 -->
+        <div class="lg:col-span-4 space-y-4">
+            <!-- 用户信息卡 -->
+            <div class="bg-white rounded-2xl shadow-lg border border-slate-100 p-5">
+                <div id="profileCard">
+                    <div class="text-center py-4">
+                        <div class="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-3xl mx-auto mb-2">👤</div>
+                        <p class="text-sm text-slate-500">请先登录</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 今日记录卡片（仅学生，且今日未记录时显示） -->
+            <div id="todayRecordCard" class="bg-white rounded-2xl shadow-xl border border-slate-100 p-6 hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-bold flex items-center gap-2">
+                        <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                        今日工作记录
+                    </h2>
+                    <span id="recordDate" class="text-xs text-slate-500"></span>
+                </div>
+
+                <!-- 上午 -->
+                <div class="mb-4 p-3 rounded-lg time-section time-morning">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-lg">☀️</span>
+                        <span class="font-medium text-amber-800 text-sm">上午</span>
+                        <span class="text-xs text-amber-600 ml-auto">9:00-12:00</span>
+                    </div>
+                    <textarea id="morningContent" rows="2" class="w-full p-2 rounded border border-amber-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-200 outline-none resize-none text-sm bg-white/80" placeholder="上午做了什么？"></textarea>
+                </div>
+
+                <!-- 下午 -->
+                <div class="mb-4 p-3 rounded-lg time-section time-afternoon">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-lg">🌤</span>
+                        <span class="font-medium text-orange-800 text-sm">下午</span>
+                        <span class="text-xs text-orange-600 ml-auto">14:00-18:00</span>
+                    </div>
+                    <textarea id="afternoonContent" rows="2" class="w-full p-2 rounded border border-orange-200 focus:border-orange-500 focus:ring-1 focus:ring-orange-200 outline-none resize-none text-sm bg-white/80" placeholder="下午做了什么？"></textarea>
+                </div>
+
+                <!-- 晚上 -->
+                <div class="mb-4 p-3 rounded-lg time-section time-evening">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-lg">🌙</span>
+                        <span class="font-medium text-indigo-800 text-sm">晚上</span>
+                        <span class="text-xs text-indigo-600 ml-auto">19:00-22:00</span>
+                    </div>
+                    <textarea id="eveningContent" rows="2" class="w-full p-2 rounded border border-indigo-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 outline-none resize-none text-sm bg-white/80" placeholder="晚上做了什么？（可选）"></textarea>
+                </div>
+
+                <!-- 今日总结 -->
+                <div class="mb-4">
+                    <label class="text-xs text-slate-500 mb-2 block">今日总结/心得</label>
+                    <textarea id="summaryContent" rows="2" class="w-full p-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none resize-none text-sm" placeholder="今天的收获、遇到的问题、明日计划..."></textarea>
+                </div>
+
+                <!-- 工作类型（多选） -->
+                <div class="mb-4">
+                    <label class="text-xs text-slate-500 mb-2 block">今日工作类型（可多选）</label>
+                    <div class="flex flex-wrap gap-2" id="typeTags">
+                        <button onclick="toggleType('实验')" class="px-3 py-1.5 rounded-full text-xs border border-slate-200 bg-slate-50 text-slate-600 hover:border-indigo-300 transition-all" data-type="实验">🧪 实验</button>
+                        <button onclick="toggleType('阅读')" class="px-3 py-1.5 rounded-full text-xs border border-slate-200 bg-slate-50 text-slate-600 hover:border-indigo-300 transition-all" data-type="阅读">📚 阅读</button>
+                        <button onclick="toggleType('写作')" class="px-3 py-1.5 rounded-full text-xs border border-slate-200 bg-slate-50 text-slate-600 hover:border-indigo-300 transition-all" data-type="写作">✍️ 写作</button>
+                        <button onclick="toggleType('代码')" class="px-3 py-1.5 rounded-full text-xs border border-slate-200 bg-slate-50 text-slate-600 hover:border-indigo-300 transition-all" data-type="代码">💻 代码</button>
+                        <button onclick="toggleType('会议')" class="px-3 py-1.5 rounded-full text-xs border border-slate-200 bg-slate-50 text-slate-600 hover:border-indigo-300 transition-all" data-type="会议">👥 会议</button>
+                    </div>
+                </div>
+
+                <!-- 今日状态 -->
+                <div class="mb-4">
+                    <label class="text-xs text-slate-500 mb-2 block">今日整体状态</label>
+                    <div class="flex gap-2">
+                        <button onclick="selectMood('productive')" class="flex-1 py-2 rounded-lg bg-slate-50 hover:bg-green-50 text-xl transition-all border-2 border-transparent hover:border-green-200" id="mood-productive" title="高效充实">🚀</button>
+                        <button onclick="selectMood('normal')" class="flex-1 py-2 rounded-lg bg-slate-50 hover:bg-blue-50 text-xl transition-all border-2 border-transparent hover:border-blue-200" id="mood-normal" title="正常推进">😊</button>
+                        <button onclick="selectMood('tired')" class="flex-1 py-2 rounded-lg bg-slate-50 hover:bg-yellow-50 text-xl transition-all border-2 border-transparent hover:border-yellow-200" id="mood-tired" title="比较疲惫">😴</button>
+                        <button onclick="selectMood('stuck')" class="flex-1 py-2 rounded-lg bg-slate-50 hover:bg-red-50 text-xl transition-all border-2 border-transparent hover:border-red-200" id="mood-stuck" title="遇到困难">😵‍💫</button>
+                    </div>
+                </div>
+
+                <button onclick="saveTodayRecord()" class="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-medium hover:shadow-lg hover:scale-[1.02] transition-all flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    保存今日记录
+                </button>
+
+                <p class="text-xs text-slate-400 text-center mt-3">
+                    💡 今天已经记录过了？<button onclick="editTodayRecord()" class="text-indigo-600 hover:underline">修改今日记录</button>
+                </p>
+            </div>
+
+            <!-- 今日已记录提示（记录后显示） -->
+            <div id="todayDoneCard" class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl shadow-lg border border-green-200 p-6 hidden">
+                <div class="text-center">
+                    <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center text-3xl mx-auto mb-3">✅</div>
+                    <h3 class="font-bold text-green-800 mb-1">今日已记录</h3>
+                    <p class="text-sm text-green-600 mb-4">已完成今日工作日志</p>
+                    <div class="flex gap-2">
+                        <button onclick="editTodayRecord()" class="flex-1 py-2 bg-white border border-green-300 text-green-700 rounded-lg text-sm hover:bg-green-50">
+                            修改
+                        </button>
+                        <button onclick="viewHistory()" class="flex-1 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">
+                            查看历史
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 导师面板 -->
+            <div id="teacherPanel" class="bg-white rounded-2xl shadow-xl border border-slate-100 p-6 hidden">
+                <h2 class="text-lg font-bold mb-4 text-amber-700">👨‍🏫 导师面板</h2>
+                <div class="space-y-3">
+                    <div class="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                        <div class="text-2xl font-bold text-amber-600" id="totalStudents">0</div>
+                        <div class="text-xs text-amber-700">学生总数</div>
+                    </div>
+                    <div class="p-3 bg-green-50 rounded-lg border border-green-200">
+                        <div class="text-2xl font-bold text-green-600" id="todaySubmitted">0</div>
+                        <div class="text-xs text-green-700">今日已交</div>
+                    </div>
+                    <div class="p-3 bg-red-50 rounded-lg border border-red-200">
+                        <div class="text-2xl font-bold text-red-600" id="todayMissing">0</div>
+                        <div class="text-xs text-red-700">今日未交</div>
+                    </div>
+                </div>
+                <div class="mt-4 pt-4 border-t border-slate-200">
+                    <label class="text-xs text-slate-500 mb-2 block">快速查看</label>
+                    <select id="quickStudentSelect" onchange="viewStudent(this.value)" class="w-full p-2 rounded-lg border border-slate-300 text-sm">
+                        <option value="">选择学生...</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 统计概览 -->
+            <div class="bg-white rounded-2xl shadow-lg border border-slate-100 p-5">
+                <h3 class="text-sm font-bold text-slate-700 mb-3" id="statsTitle">我的概览</h3>
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-600">记录天数</span>
+                        <span class="font-bold text-indigo-600" id="statsDays">0 天</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-600">本周记录</span>
+                        <span class="font-bold text-indigo-600" id="statsWeek">0 天</span>
+                    </div>
+                    <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div class="h-full bg-gradient-to-r from-indigo-500 to-purple-500 w-0 transition-all duration-500" id="progressBar"></div>
+                    </div>
+                    <p class="text-xs text-slate-400 text-center">连续记录 <span id="streakCount" class="font-bold text-orange-500">0</span> 天</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧主内容区 -->
+        <div class="lg:col-span-8">
+            <!-- 筛选栏 -->
+            <div class="flex flex-wrap gap-2 mb-6 items-center">
+                <button onclick="filterLogs('all')" class="px-4 py-2 rounded-full bg-indigo-600 text-white text-sm font-medium shadow-md" id="filter-all">全部</button>
+                <button onclick="filterLogs('today')" class="px-4 py-2 rounded-full bg-white text-slate-600 text-sm font-medium shadow-sm border border-slate-200 hover:border-indigo-300" id="filter-today">今天</button>
+                <button onclick="filterLogs('week')" class="px-4 py-2 rounded-full bg-white text-slate-600 text-sm font-medium shadow-sm border border-slate-200 hover:border-indigo-300" id="filter-week">本周</button>
+                <button onclick="filterLogs('month')" class="px-4 py-2 rounded-full bg-white text-slate-600 text-sm font-medium shadow-sm border border-slate-200 hover:border-indigo-300" id="filter-month">本月</button>
+
+                <select id="studentFilter" onchange="filterByStudent(this.value)" class="hidden px-3 py-2 rounded-full bg-white text-slate-600 text-sm border border-slate-200 focus:border-indigo-500 outline-none ml-auto">
+                    <option value="">所有学生</option>
+                </select>
+            </div>
+
+            <!-- 当前查看状态（导师模式） -->
+            <div id="viewingStatus" class="hidden mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200 flex justify-between items-center">
+                <span class="text-sm text-blue-700">正在查看：<span id="viewingStudentName" class="font-bold"></span></span>
+                <button onclick="backToOverview()" class="text-xs text-blue-600 hover:text-blue-800">← 返回总览</button>
+            </div>
+
+            <!-- 刷新按钮 -->
+            <div class="mb-4 flex justify-end">
+                <button onclick="refreshData()" class="text-xs text-slate-500 hover:text-indigo-600 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-white transition-all">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    刷新数据
+                </button>
+            </div>
+
+            <!-- 时间轴 -->
+            <div id="timeline" class="space-y-6"></div>
+            <div id="emptyState" class="hidden text-center py-20">
+                <div class="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl">📝</div>
+                <h3 class="text-lg font-medium text-slate-700 mb-2">还没有记录</h3>
+                <p class="text-slate-500 text-sm">开始记录工作日志吧！</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导师评语弹窗 -->
+    <div id="commentModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+            <h3 class="text-lg font-bold mb-4">💬 添加评语</h3>
+            <div class="mb-4 p-3 bg-slate-50 rounded-lg">
+                <p class="text-xs text-slate-500 mb-1">日期：<span id="commentDate"></span></p>
+                <p class="text-xs text-slate-500">学生：<span id="commentStudent"></span></p>
+            </div>
+            <textarea id="commentContent" rows="4" class="w-full p-3 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none resize-none text-sm mb-4" placeholder="输入评语..."></textarea>
+            <div class="flex gap-2">
+                <button onclick="closeCommentModal()" class="flex-1 py-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50">取消</button>
+                <button onclick="submitComment()" class="flex-1 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600">提交评语</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 统计弹窗 -->
+    <div id="statsModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-4xl w-full max-h-[85vh] overflow-y-auto p-6 shadow-2xl" id="statsContent"></div>
+    </div>
+
+    <script>
+        // ==================== 配置区域（已填入你的信息）====================
+        const CONFIG = {
+            // JSONBin.io 配置
+            JSONBIN_BIN_ID: '69c4f4e4aa77b81da91f1c7e',  // 你的 Bin ID
+            JSONBIN_API_KEY: '$2a$10$3f.SZH3IeeCPGuktLSX1ouS/bmspvVGLqPlCTHam8Pq/Zn3s7ZdJ.',  // 你的 Master Key
+
+            // 导师姓名
+            TEACHER_NAME: '导师'
+        };
+
+        // 检查配置是否有效
+        const hasBinId = CONFIG.JSONBIN_BIN_ID && CONFIG.JSONBIN_BIN_ID.length > 10;
+        const hasApiKey = CONFIG.JSONBIN_API_KEY && CONFIG.JSONBIN_API_KEY.startsWith('$');
+        const isConfigured = hasBinId && hasApiKey;
+
+        console.log('配置状态:', { isConfigured, hasBinId, hasApiKey }); // 调试用
+
+        // ==================== 全局状态 ====================
+        let currentUser = null;  // 当前登录用户
+        let tempRole = null;     // 临时选择的角色（学生/导师）
+        let systemData = { students: [], records: [] };
+        let currentFilter = 'all';
+        let viewingStudentId = null;
+        let selectedTypes = [];
+        let selectedMood = 'normal';
+        let editingRecordId = null;
+        let isOfflineMode = false;
+        let commentingRecordId = null;
+
+        const JSONBIN_API = 'https://api.jsonbin.io/v3/b';
+
+        // ==================== 初始化 ====================
+        document.addEventListener('DOMContentLoaded', () => {
+            updateDate();
+            console.log('页面加载完成，配置状态:', isConfigured);
+
+            if (!isConfigured) {
+                console.log('显示配置面板');
+                document.getElementById('configBanner').classList.remove('hidden');
+            } else {
+                console.log('配置有效，加载数据');
+                loadSystemData();
+            }
+        });
+
+        // ==================== 配置设置 ====================
+        function saveSetupConfig() {
+            const binId = document.getElementById('setupBinId').value.trim();
+            const apiKey = document.getElementById('setupApiKey').value.trim();
+
+            if (!binId || !apiKey) {
+                alert('请填写完整的 Bin ID 和 API Key');
+                return;
+            }
+
+            CONFIG.JSONBIN_BIN_ID = binId;
+            CONFIG.JSONBIN_API_KEY = apiKey;
+
+            localStorage.setItem('jsonbin_bin_id', binId);
+            localStorage.setItem('jsonbin_api_key', apiKey);
+
+            document.getElementById('configBanner').classList.add('hidden');
+            loadSystemData();
+            showToast('配置已保存！');
+        }
+
+        // 尝试从本地存储恢复配置
+        const savedBinId = localStorage.getItem('jsonbin_bin_id');
+        const savedApiKey = localStorage.getItem('jsonbin_api_key');
+        if (savedBinId && savedApiKey) {
+            CONFIG.JSONBIN_BIN_ID = savedBinId;
+            CONFIG.JSONBIN_API_KEY = savedApiKey;
+        }
+
+        // ==================== 数据操作 ====================
+        async function loadSystemData() {
+            if (!isConfigured || isOfflineMode) {
+                const cached = localStorage.getItem('offline_logs');
+                if (cached) {
+                    systemData = JSON.parse(cached);
+                    console.log('从本地缓存加载数据');
+                }
+                return;
+            }
+
+            updateSyncStatus('syncing');
+            try {
+                console.log('正在从 JSONBin 加载数据...');
+                const response = await fetch(`${JSONBIN_API}/${CONFIG.JSONBIN_BIN_ID}/latest`, {
+                    headers: { 'X-Master-Key': CONFIG.JSONBIN_API_KEY }
+                });
+
+                console.log('响应状态:', response.status);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    systemData = data.record || { students: [], records: [] };
+                    localStorage.setItem('offline_logs', JSON.stringify(systemData));
+                    updateSyncStatus('online');
+                    console.log('数据加载成功:', systemData);
+                } else if (response.status === 404) {
+                    console.log('Bin 不存在，初始化空数据');
+                    systemData = { students: [], records: [] };
+                    await saveSystemData();
+                } else {
+                    const errorText = await response.text();
+                    console.error('加载失败:', response.status, errorText);
+                    throw new Error('加载失败: ' + response.status);
+                }
+            } catch (error) {
+                console.error('加载失败:', error);
+                const cached = localStorage.getItem('offline_logs');
+                if (cached) systemData = JSON.parse(cached);
+                updateSyncStatus('offline');
+                showToast('使用离线数据');
+            }
+        }
+
+        async function saveSystemData() {
+            if (isOfflineMode) {
+                localStorage.setItem('offline_logs', JSON.stringify(systemData));
+                showToast('已保存到本地');
+                return true;
+            }
+
+            if (!isConfigured) {
+                console.error('未配置，无法保存');
+                return false;
+            }
+
+            updateSyncStatus('syncing');
+            try {
+                const response = await fetch(`${JSONBIN_API}/${CONFIG.JSONBIN_BIN_ID}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Master-Key': CONFIG.JSONBIN_API_KEY
+                    },
+                    body: JSON.stringify(systemData)
+                });
+
+                if (response.ok) {
+                    localStorage.setItem('offline_logs', JSON.stringify(systemData));
+                    updateSyncStatus('online');
+                    return true;
+                } else {
+                    throw new Error('保存失败: ' + response.status);
+                }
+            } catch (error) {
+                console.error('保存失败:', error);
+                localStorage.setItem('offline_logs', JSON.stringify(systemData));
+                localStorage.setItem('pendingSync', 'true');
+                updateSyncStatus('offline');
+                return false;
+            }
+        }
+
+        // ==================== 用户选择流程（修复版）====================
+
+        // 步骤1：选择角色
+        function selectRole(role) {
+            console.log('选择角色:', role);
+            tempRole = role;  // 保存临时角色
+
+            // 隐藏步骤1
+            document.getElementById('step1').classList.add('hidden');
+
+            if (role === 'student') {
+                // 显示学生步骤2
+                document.getElementById('step2-student').classList.remove('hidden');
+                document.getElementById('step2-teacher').classList.add('hidden');
+
+                // 渲染学生列表
+                renderStudentList();
+            } else {
+                // 显示导师步骤2
+                document.getElementById('step2-student').classList.add('hidden');
+                document.getElementById('step2-teacher').classList.remove('hidden');
+
+                // 设置导师用户
+                currentUser = {
+                    id: 'teacher',
+                    name: CONFIG.TEACHER_NAME,
+                    role: 'teacher'
+                };
+            }
+        }
+
+        // 返回步骤1
+        function backToStep1() {
+            console.log('返回步骤1');
+            tempRole = null;
+            currentUser = null;
+
+            document.getElementById('step1').classList.remove('hidden');
+            document.getElementById('step2-student').classList.add('hidden');
+            document.getElementById('step2-teacher').classList.add('hidden');
+        }
+
+        // 渲染学生列表
+        function renderStudentList() {
+            console.log('渲染学生列表，当前数据:', systemData.students);
+            const container = document.getElementById('studentList');
+            const noStudentsMsg = document.getElementById('noStudentsMsg');
+            const enterBtn = document.getElementById('enterBtnStudent');
+
+            // 确保数据已加载
+            if (!systemData.students) {
+                systemData.students = [];
+            }
+
+            if (systemData.students.length === 0) {
+                container.innerHTML = '';
+                noStudentsMsg.classList.remove('hidden');
+                enterBtn.classList.add('hidden');
+            } else {
+                noStudentsMsg.classList.add('hidden');
+                container.innerHTML = systemData.students.map(s => `
+                    <div onclick="selectStudent('${s.id}')" class="student-card p-4 rounded-xl border-2 border-slate-200 hover:border-blue-400 bg-white flex items-center gap-3" data-id="${s.id}">
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-white flex items-center justify-center font-bold text-lg">
+                            ${s.name.charAt(0)}
+                        </div>
+                        <div class="flex-1">
+                            <div class="font-bold text-slate-800">${s.name}</div>
+                            <div class="text-xs text-slate-500">${s.year}级</div>
+                        </div>
+                    </div>
+                `).join('');
+
+                // 如果有已选中的学生，显示进入按钮
+                if (currentUser && currentUser.role === 'student') {
+                    enterBtn.classList.remove('hidden');
+                }
+            }
+        }
+
+        // 创建新学生
+        async function createStudent() {
+            const name = document.getElementById('newStudentName').value.trim();
+            const year = document.getElementById('newStudentYear').value;
+
+            if (!name) {
+                alert('请输入姓名');
+                return;
+            }
+
+            // 检查是否已存在
+            if (systemData.students.find(s => s.name === name)) {
+                alert('该姓名已存在，请直接选择');
+                return;
+            }
+
+            const newStudent = {
+                id: 'stu_' + Date.now(),
+                name: name,
+                year: year,
+                createdAt: new Date().toISOString()
+            };
+
+            systemData.students.push(newStudent);
+            await saveSystemData();
+
+            document.getElementById('newStudentName').value = '';
+
+            // 自动选中新创建的学生
+            selectStudent(newStudent.id);
+
+            renderStudentList();
+            showToast('创建成功！');
+        }
+
+        // 选择学生
+        function selectStudent(id) {
+            console.log('选择学生:', id);
+            const student = systemData.students.find(s => s.id === id);
+            if (!student) return;
+
+            // 设置当前用户
+            currentUser = {
+                ...student,
+                role: 'student'
+            };
+
+            // 更新UI选中状态
+            document.querySelectorAll('.student-card').forEach(card => {
+                const isSelected = card.dataset.id === id;
+                card.classList.toggle('active', isSelected);
+                card.classList.toggle('ring-2', isSelected);
+                card.classList.toggle('ring-blue-500', isSelected);
+            });
+
+            // 显示进入按钮
+            document.getElementById('enterBtnStudent').classList.remove('hidden');
+        }
+
+        // 进入离线模式
+        function enterOfflineMode() {
+            isOfflineMode = true;
+            document.getElementById('configBanner').classList.add('hidden');
+            document.getElementById('userPanel').classList.remove('hidden');
+            showToast('进入离线模式');
+        }
+
+        // 进入系统（核心函数）
+        async function enterSystem() {
+            console.log('进入系统，当前用户:', currentUser);
+
+            if (!currentUser) {
+                alert('请先选择身份');
+                return;
+            }
+
+            // 隐藏用户面板
+            document.getElementById('userPanel').classList.add('hidden');
+
+            // 显示用户信息
+            document.getElementById('userBadge').classList.remove('hidden');
+            document.getElementById('userName').textContent = currentUser.name;
+            document.getElementById('userRole').textContent = currentUser.role === 'teacher' ? '导师' : '学生';
+
+            const badge = document.getElementById('userBadge');
+            badge.className = `px-3 py-1.5 rounded-full text-xs font-medium text-white flex items-center gap-2 ${currentUser.role === 'teacher' ? 'role-teacher' : 'role-student'}`;
+
+            // 更新档案卡
+            document.getElementById('profileCard').innerHTML = currentUser.role === 'student' ? `
+                <div class="text-center">
+                    <div class="w-16 h-16 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-white flex items-center justify-center text-2xl font-bold mx-auto mb-2">
+                        ${currentUser.name.charAt(0)}
+                    </div>
+                    <h3 class="font-bold text-slate-800">${currentUser.name}</h3>
+                    <p class="text-xs text-slate-500">${currentUser.year}级研究生</p>
+                </div>
+            ` : `
+                <div class="text-center">
+                    <div class="w-16 h-16 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-white flex items-center justify-center text-2xl mx-auto mb-2">
+                        👨‍🏫
+                    </div>
+                    <h3 class="font-bold text-slate-800">${CONFIG.TEACHER_NAME}</h3>
+                    <p class="text-xs text-slate-500">导师</p>
+                </div>
+            `;
+
+            // 根据角色设置界面
+            if (currentUser.role === 'teacher') {
+                setupTeacherView();
+            } else {
+                setupStudentView();
+            }
+
+            // 渲染记录
+            renderRecords();
+            updateStats();
+        }
+
+        // 设置学生视图
+        function setupStudentView() {
+            const today = new Date().toLocaleDateString('zh-CN');
+            const todayRecord = systemData.records.find(r => r.studentId === currentUser.id && r.date === today);
+
+            if (todayRecord) {
+                document.getElementById('todayDoneCard').classList.remove('hidden');
+                document.getElementById('todayRecordCard').classList.add('hidden');
+            } else {
+                document.getElementById('todayRecordCard').classList.remove('hidden');
+                document.getElementById('todayDoneCard').classList.add('hidden');
+                document.getElementById('recordDate').textContent = today;
+            }
+        }
+
+        // 设置导师视图
+        function setupTeacherView() {
+            document.getElementById('teacherPanel').classList.remove('hidden');
+            document.getElementById('studentFilter').classList.remove('hidden');
+
+            const options = systemData.students.map(s =>
+                `<option value="${s.id}">${s.name} (${s.year}级)</option>`
+            ).join('');
+
+            document.getElementById('studentFilter').innerHTML = '<option value="">所有学生</option>' + options;
+            document.getElementById('quickStudentSelect').innerHTML = '<option value="">选择学生...</option>' + options;
+
+            updateTeacherStats();
+        }
+
+        // 切换用户
+        function showUserSelector() {
+            // 重置状态
+            currentUser = null;
+            tempRole = null;
+            viewingStudentId = null;
+
+            // 隐藏所有面板
+            document.getElementById('userBadge').classList.add('hidden');
+            document.getElementById('todayRecordCard').classList.add('hidden');
+            document.getElementById('todayDoneCard').classList.add('hidden');
+            document.getElementById('teacherPanel').classList.add('hidden');
+            document.getElementById('studentFilter').classList.add('hidden');
+            document.getElementById('viewingStatus').classList.add('hidden');
+
+            // 重置步骤显示
+            document.getElementById('userPanel').classList.remove('hidden');
+            document.getElementById('step1').classList.remove('hidden');
+            document.getElementById('step2-student').classList.add('hidden');
+            document.getElementById('step2-teacher').classList.add('hidden');
+            document.getElementById('enterBtnStudent').classList.add('hidden');
+
+            // 重新加载数据
+            loadSystemData().then(() => {
+                renderStudentList();
+            });
+        }
+
+        // ==================== 记录操作 ====================
+        function toggleType(type) {
+            const idx = selectedTypes.indexOf(type);
+            if (idx > -1) selectedTypes.splice(idx, 1);
+            else selectedTypes.push(type);
+
+            document.querySelectorAll('#typeTags button').forEach(btn => {
+                const isSelected = selectedTypes.includes(btn.dataset.type);
+                btn.classList.toggle('tag-active', isSelected);
+                btn.classList.toggle('bg-slate-50', !isSelected);
+                btn.classList.toggle('text-slate-600', !isSelected);
+            });
+        }
+
+        function selectMood(mood) {
+            selectedMood = mood;
+            document.querySelectorAll('[id^="mood-"]').forEach(btn => {
+                btn.classList.remove('ring-2', 'ring-offset-2', 'ring-indigo-500');
+                btn.style.transform = 'scale(1)';
+            });
+
+            const btn = document.getElementById('mood-' + mood);
+            btn.classList.add('ring-2', 'ring-offset-2', 'ring-indigo-500');
+            btn.style.transform = 'scale(1.1)';
+        }
+
+        async function saveTodayRecord() {
+            const morning = document.getElementById('morningContent').value.trim();
+            const afternoon = document.getElementById('afternoonContent').value.trim();
+            const evening = document.getElementById('eveningContent').value.trim();
+            const summary = document.getElementById('summaryContent').value.trim();
+
+            if (!morning && !afternoon && !evening && !summary) {
+                alert('请至少填写一项工作内容');
+                return;
+            }
+
+            const today = new Date().toLocaleDateString('zh-CN');
+            const record = {
+                id: editingRecordId || 'rec_' + Date.now(),
+                studentId: currentUser.id,
+                studentName: currentUser.name,
+                studentYear: currentUser.year,
+                date: today,
+                timestamp: new Date().toISOString(),
+                morning, afternoon, evening, summary,
+                types: selectedTypes.length > 0 ? selectedTypes : ['其他'],
+                mood: selectedMood,
+                comments: []
+            };
+
+            const existingIdx = systemData.records.findIndex(r => r.studentId === currentUser.id && r.date === today);
+            if (existingIdx > -1) {
+                record.comments = systemData.records[existingIdx].comments || [];
+                systemData.records[existingIdx] = record;
+            } else {
+                systemData.records.unshift(record);
+            }
+
+            await saveSystemData();
+
+            document.getElementById('todayRecordCard').classList.add('hidden');
+            document.getElementById('todayDoneCard').classList.remove('hidden');
+
+            // 重置表单
+            editingRecordId = null;
+            selectedTypes = [];
+            selectedMood = 'normal';
+            document.querySelectorAll('#typeTags button').forEach(btn => {
+                btn.classList.remove('tag-active');
+                btn.classList.add('bg-slate-50', 'text-slate-600');
+            });
+            document.querySelectorAll('[id^="mood-"]').forEach(btn => {
+                btn.classList.remove('ring-2', 'ring-offset-2', 'ring-indigo-500');
+                btn.style.transform = 'scale(1)';
+            });
+
+            renderRecords();
+            updateStats();
+            showToast('保存成功！');
+        }
+
+        function editTodayRecord() {
+            const today = new Date().toLocaleDateString('zh-CN');
+            const record = systemData.records.find(r => r.studentId === currentUser.id && r.date === today);
+
+            if (!record) return;
+
+            editingRecordId = record.id;
+            document.getElementById('morningContent').value = record.morning || '';
+            document.getElementById('afternoonContent').value = record.afternoon || '';
+            document.getElementById('eveningContent').value = record.evening || '';
+            document.getElementById('summaryContent').value = record.summary || '';
+
+            selectedTypes = record.types || [];
+            document.querySelectorAll('#typeTags button').forEach(btn => {
+                const isSelected = selectedTypes.includes(btn.dataset.type);
+                btn.classList.toggle('tag-active', isSelected);
+                btn.classList.toggle('bg-slate-50', !isSelected);
+                btn.classList.toggle('text-slate-600', !isSelected);
+            });
+
+            selectedMood = record.mood || 'normal';
+            selectMood(selectedMood);
+
+            document.getElementById('todayDoneCard').classList.add('hidden');
+            document.getElementById('todayRecordCard').classList.remove('hidden');
+        }
+
+        function viewHistory() {
+            currentFilter = 'all';
+            filterLogs('all');
+            document.getElementById('timeline').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // ==================== 渲染记录 ====================
+        function renderRecords() {
+            const container = document.getElementById('timeline');
+            const emptyState = document.getElementById('emptyState');
+
+            let filteredRecords = systemData.records || [];
+
+            if (currentUser.role === 'student') {
+                filteredRecords = filteredRecords.filter(r => r.studentId === currentUser.id);
+            } else if (viewingStudentId) {
+                filteredRecords = filteredRecords.filter(r => r.studentId === viewingStudentId);
+            } else if (document.getElementById('studentFilter')?.value) {
+                filteredRecords = filteredRecords.filter(r => r.studentId === document.getElementById('studentFilter').value);
+            }
+
+            const today = new Date().toLocaleDateString('zh-CN');
+
+            if (currentFilter === 'today') {
+                filteredRecords = filteredRecords.filter(r => r.date === today);
+            } else if (currentFilter === 'week') {
+                const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+                filteredRecords = filteredRecords.filter(r => new Date(r.timestamp) > weekAgo);
+            } else if (currentFilter === 'month') {
+                const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+                filteredRecords = filteredRecords.filter(r => new Date(r.timestamp) > monthAgo);
+            }
+
+            if (filteredRecords.length === 0) {
+                container.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+
+            container.innerHTML = filteredRecords.map(record => renderRecordCard(record, record.date === today)).join('');
+        }
+
+        function renderRecordCard(record, isToday) {
+            const typeColors = {
+                '实验': 'bg-amber-100 text-amber-700',
+                '阅读': 'bg-blue-100 text-blue-700',
+                '写作': 'bg-green-100 text-green-700',
+                '代码': 'bg-purple-100 text-purple-700',
+                '会议': 'bg-pink-100 text-pink-700',
+                '其他': 'bg-slate-100 text-slate-700'
+            };
+            const moodEmojis = { productive: '🚀', normal: '😊', tired: '😴', stuck: '😵‍💫' };
+
+            const hasContent = (text) => text && text.trim();
+
+            let commentsHtml = '';
+            if (record.comments?.length > 0) {
+                commentsHtml = record.comments.map(c => `
+                    <div class="mt-3 p-3 rounded teacher-comment text-sm">
+                        <div class="flex items-center gap-1 mb-1 text-amber-700 font-medium">
+                            <span>👨‍🏫</span>
+                            <span>${c.teacherName} · ${new Date(c.time).toLocaleString('zh-CN', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'})}</span>
+                        </div>
+                        <p class="text-amber-900">${c.content}</p>
+                    </div>
+                `).join('');
+            }
+
+            const teacherActions = currentUser.role === 'teacher' ? `
+                <div class="mt-3 pt-3 border-t border-slate-100 flex justify-end">
+                    <button onclick="openCommentModal('${record.id}')" class="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-sm hover:bg-amber-200 flex items-center gap-1">
+                        <span>💬</span> 添加评语
+                    </button>
+                </div>
+            ` : '';
+
+            const studentInfo = currentUser.role === 'teacher' && !viewingStudentId ? `
+                <div class="flex items-center gap-2 mb-3">
+                    <div class="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold">${record.studentName.charAt(0)}</div>
+                    <div>
+                        <div class="font-medium text-slate-800">${record.studentName}</div>
+                        <div class="text-xs text-slate-500">${record.studentYear}级</div>
+                    </div>
+                </div>
+            ` : '';
+
+            const todayBadge = isToday ? `<span class="today-badge ml-2">今天</span>` : '';
+
+            return `
+                <div class="entry-card bg-white rounded-2xl shadow-md border ${isToday ? 'border-green-400 today-record' : 'border-slate-100'} p-5 ${isToday ? 'ring-2 ring-green-400' : ''}">
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h3 class="font-bold text-lg text-slate-800">${record.date}</h3>
+                                ${todayBadge}
+                            </div>
+                            <div class="flex items-center gap-2 mt-1">
+                                <span class="text-lg">${moodEmojis[record.mood] || '😊'}</span>
+                                <div class="flex gap-1">
+                                    ${(record.types || []).map(t => `<span class="px-2 py-0.5 rounded text-xs ${typeColors[t] || typeColors['其他']}">${t}</span>`).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    ${studentInfo}
+
+                    <div class="space-y-3">
+                        ${hasContent(record.morning) ? `
+                            <div class="p-3 rounded-lg time-section time-morning">
+                                <div class="flex items-center gap-2 mb-1 text-amber-700 text-xs font-medium">
+                                    <span>☀️</span> 上午
+                                </div>
+                                <p class="text-slate-700 text-sm">${record.morning}</p>
+                            </div>
+                        ` : ''}
+
+                        ${hasContent(record.afternoon) ? `
+                            <div class="p-3 rounded-lg time-section time-afternoon">
+                                <div class="flex items-center gap-2 mb-1 text-orange-700 text-xs font-medium">
+                                    <span>🌤</span> 下午
+                                </div>
+                                <p class="text-slate-700 text-sm">${record.afternoon}</p>
+                            </div>
+                        ` : ''}
+
+                        ${hasContent(record.evening) ? `
+                            <div class="p-3 rounded-lg time-section time-evening">
+                                <div class="flex items-center gap-2 mb-1 text-indigo-700 text-xs font-medium">
+                                    <span>🌙</span> 晚上
+                                </div>
+                                <p class="text-slate-700 text-sm">${record.evening}</p>
+                            </div>
+                        ` : ''}
+
+                        ${hasContent(record.summary) ? `
+                            <div class="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                <div class="text-xs text-slate-500 mb-1 font-medium">今日总结</div>
+                                <p class="text-slate-700 text-sm">${record.summary}</p>
+                            </div>
+                        ` : ''}
+                    </div>
+
+                    ${commentsHtml}
+                    ${teacherActions}
+                </div>
+            `;
+        }
+
+        function filterLogs(type) {
+            currentFilter = type;
+            document.querySelectorAll('[id^="filter-"]').forEach(btn => {
+                if (btn.id === 'filter-' + type) {
+                    btn.classList.remove('bg-white', 'text-slate-600');
+                    btn.classList.add('bg-indigo-600', 'text-white');
+                } else if (btn.id.startsWith('filter-')) {
+                    btn.classList.remove('bg-indigo-600', 'text-white');
+                    btn.classList.add('bg-white', 'text-slate-600');
+                }
+            });
+            renderRecords();
+        }
+
+        function filterByStudent(studentId) {
+            if (studentId) {
+                viewingStudentId = studentId;
+                const student = systemData.students.find(s => s.id === studentId);
+                document.getElementById('viewingStatus').classList.remove('hidden');
+                document.getElementById('viewingStudentName').textContent = student?.name || '';
+            } else {
+                viewingStudentId = null;
+                document.getElementById('viewingStatus').classList.add('hidden');
+            }
+            renderRecords();
+        }
+
+        function viewStudent(studentId) {
+            document.getElementById('studentFilter').value = studentId;
+            filterByStudent(studentId);
+        }
+
+        function backToOverview() {
+            viewingStudentId = null;
+            document.getElementById('studentFilter').value = '';
+            document.getElementById('viewingStatus').classList.add('hidden');
+            renderRecords();
+        }
+
+        // ==================== 评语功能 ====================
+        function openCommentModal(recordId) {
+            commentingRecordId = recordId;
+            const record = systemData.records.find(r => r.id === recordId);
+            if (!record) return;
+
+            document.getElementById('commentDate').textContent = record.date;
+            document.getElementById('commentStudent').textContent = record.studentName;
+            document.getElementById('commentContent').value = '';
+            document.getElementById('commentModal').classList.remove('hidden');
+        }
+
+        function closeCommentModal() {
+            document.getElementById('commentModal').classList.add('hidden');
+            commentingRecordId = null;
+        }
+
+        async function submitComment() {
+            const content = document.getElementById('commentContent').value.trim();
+            if (!content) {
+                alert('请输入评语');
+                return;
+            }
+
+            const record = systemData.records.find(r => r.id === commentingRecordId);
+            if (!record) return;
+
+            if (!record.comments) record.comments = [];
+
+            record.comments.push({
+                teacherId: 'teacher',
+                teacherName: CONFIG.TEACHER_NAME,
+                content: content,
+                time: new Date().toISOString()
+            });
+
+            await saveSystemData();
+            closeCommentModal();
+            renderRecords();
+            showToast('评语已添加');
+        }
+
+        // ==================== 统计功能 ====================
+        function updateStats() {
+            let relevantRecords = systemData.records || [];
+
+            if (currentUser.role === 'student') {
+                relevantRecords = relevantRecords.filter(r => r.studentId === currentUser.id);
+            }
+
+            const uniqueDays = new Set(relevantRecords.map(r => r.date)).size;
+            document.getElementById('statsDays').textContent = uniqueDays + ' 天';
+
+            const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+            const weekRecords = relevantRecords.filter(r => new Date(r.timestamp) > weekAgo);
+            document.getElementById('statsWeek').textContent = new Set(weekRecords.map(r => r.date)).size + ' 天';
+
+            const dates = [...new Set(relevantRecords.map(r => r.date))].sort().reverse();
+            let streak = 0;
+            const today = new Date().toLocaleDateString('zh-CN');
+
+            if (dates.includes(today)) {
+                streak = 1;
+                for (let i = 1; i < 30; i++) {
+                    const expected = new Date(Date.now() - i * 86400000).toLocaleDateString('zh-CN');
+                    if (dates.includes(expected)) streak++;
+                    else break;
+                }
+            }
+            document.getElementById('streakCount').textContent = streak;
+
+            const todayRecorded = dates.includes(today);
+            document.getElementById('progressBar').style.width = todayRecorded ? '100%' : '0%';
+
+            if (currentUser.role === 'teacher') {
+                updateTeacherStats();
+            }
+        }
+
+        function updateTeacherStats() {
+            document.getElementById('totalStudents').textContent = systemData.students?.length || 0;
+            const today = new Date().toLocaleDateString('zh-CN');
+            const todaySubmitted = new Set((systemData.records || []).filter(r => r.date === today).map(r => r.studentId)).size;
+            document.getElementById('todaySubmitted').textContent = todaySubmitted;
+            document.getElementById('todayMissing').textContent = (systemData.students?.length || 0) - todaySubmitted;
+        }
+
+        function toggleStats() {
+            const modal = document.getElementById('statsModal');
+            if (modal.classList.contains('hidden')) {
+                modal.classList.remove('hidden');
+                generateStats();
+            } else {
+                modal.classList.add('hidden');
+            }
+        }
+
+        function generateStats() {
+            const content = document.getElementById('statsContent');
+            content.innerHTML = `
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-slate-800">📊 统计报告</h2>
+                    <button onclick="toggleStats()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center">✕</button>
+                </div>
+                <div class="text-center py-10 text-slate-500">
+                    <p class="text-lg mb-2">总记录数：<span class="font-bold text-indigo-600">${(systemData.records || []).length}</span> 条</p>
+                    <p class="text-lg">学生人数：<span class="font-bold text-indigo-600">${(systemData.students || []).length}</span> 人</p>
+                </div>
+            `;
+        }
+
+        // ==================== 工具函数 ====================
+        async function refreshData() {
+            updateSyncStatus('syncing');
+            await loadSystemData();
+            renderRecords();
+            updateStats();
+            showToast('数据已刷新');
+        }
+
+        function manualBackup() {
+            const backup = { systemData, exportedAt: new Date().toISOString() };
+            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `实验室日志备份_${new Date().toLocaleDateString('zh-CN')}.json`;
+            a.click();
+            showToast('备份已下载');
+        }
+
+        function exportData() {
+            let records = systemData.records || [];
+            if (currentUser.role === 'student') {
+                records = records.filter(r => r.studentId === currentUser.id);
+            }
+            const blob = new Blob([JSON.stringify({ records, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `工作日志_${currentUser.name}_${new Date().toLocaleDateString('zh-CN')}.json`;
+            a.click();
+            showToast('导出成功');
+        }
+
+        function updateSyncStatus(status) {
+            const indicator = document.getElementById('syncStatus');
+            const text = document.getElementById('syncText');
+            indicator.classList.remove('hidden', 'sync-online', 'sync-offline', 'sync-syncing');
+            indicator.classList.add(`sync-${status}`);
+            const labels = { online: '✓ 已同步', offline: '✗ 离线模式', syncing: '⟳ 同步中...' };
+            text.textContent = labels[status];
+            if (status === 'online') setTimeout(() => indicator.classList.add('hidden'), 3000);
+        }
+
+        function updateDate() {
+            document.getElementById('currentDate').textContent = new Date().toLocaleDateString('zh-CN', {
+                year: 'numeric', month: 'long', day: 'numeric', weekday: 'long'
+            });
+        }
+
+        function showToast(msg) {
+            const toast = document.createElement('div');
+            toast.className = 'fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-lg z-50';
+            toast.textContent = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2000);
+        }
+
+        // 弹窗点击外部关闭
+        document.getElementById('commentModal')?.addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeCommentModal();
+        });
+        document.getElementById('statsModal')?.addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) toggleStats();
+        });
+    </script>
+</body>
+</html>
